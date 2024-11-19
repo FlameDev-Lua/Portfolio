@@ -1,0 +1,20 @@
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- Function to kick the player if they jump
+local function onJump()
+    player:Kick("You were kicked for jumping.")
+end
+
+-- Connect the jump detection
+local function setupJumpDetection(char)
+    character = char
+    local humanoid = char:WaitForChild("Humanoid")
+    humanoid.Jumping:Connect(onJump)
+end
+
+-- Initialize on character load
+if character then
+    setupJumpDetection(character)
+end
+player.CharacterAdded:Connect(setupJumpDetection)
