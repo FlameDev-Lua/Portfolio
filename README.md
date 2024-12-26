@@ -5,7 +5,7 @@ About Me - Flame 🔥
 Skills & Projects:
 Working on RPGs, Visual Novels, Adventure games, and 3D Platformers on Godot and Ren'py.
 Created and showcased NPC quest systems, and GUI scripts.
-Specialize in scripting and designing quest-related NPCs.
+Specialize in Lua scripting and designing quest-related NPCs.
 I’m using my dedicated journey account, FlameDevJourney, to document and grow my skills. 📈💪
 🎬 Featured Work
 Successfully created a quest GUI update script and showcased a video of my game development skills.
