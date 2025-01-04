@@ -1,3 +1,6 @@
+-- Enemy AI with Advanced Logic and Structured Design
+
+-- References to enemy model and Roblox services
 local enemy = script.Parent
 local humanoid = enemy:WaitForChild("Humanoid")
 local rootPart = enemy:WaitForChild("HumanoidRootPart")
@@ -5,36 +8,94 @@ local players = game:GetService("Players")
 local debris = game:GetService("Debris")
 
 -- Attack Constants
-local damageLongRange = 25
-local damageShortRange = 5
-local longRange = 100
-local midRange = 70
-local shortRange = 10
-local shootCooldown = 2
-local meleeCooldown = 0.5
-local sprintDuration = 2
-local projectileSpeed = 50
+local ATTACK_CONSTANTS = {
+	Damage = {
+		LongRange = 25,
+		ShortRange = 5,
+	},
+	Range = {
+		Long = 100,
+		Mid = 70,
+		Short = 10,
+	},
+	Cooldowns = {
+		Shoot = 2,
+		Melee = 0.5,
+	},
+	SprintDuration = 2,
+	ProjectileSpeed = 50,
+	Delay = {
+		Min = 0.5,
+		Max = 1.5,
+	}
+}
 
--- Beam Counters
-local redBeamCounter = 0
-local blueBeamCounter = 0
-local giantYellowBeamCounter = 0
+-- Beam Counters using metatables for dynamic management
+local beamCounters = {
+	Red = 0,
+	Blue = 0,
+	Yellow = 0,
+}
 
--- Delay Constants
-local randomMinDelay = 0.5
-local randomMaxDelay = 1.5
-local attackDelay = 0.2
+setmetatable(beamCounters, {
+	__index = function(_, key)
+		return rawget(_, key) or 0
+	end,
+})
 
--- Functions for managing various actions
+-- Helper Functions
+
+--- Displays a red "!" above the enemy's head as a warning.
+-- Creates a BillboardGui with a red exclamation mark, attaches it to the enemy, and removes it after a short duration.
+local function showAttackWarning()
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 50, 0, 50)
+	billboard.Adornee = rootPart
+	billboard.Parent = enemy
+	billboard.StudsOffset = Vector3.new(0, 5, 0)
+
+	local label = Instance.new("TextLabel")
+	label.Text = "!"
+	label.Font = Enum.Font.ArialBold
+	label.TextColor3 = Color3.new(1, 0, 0) -- Red color
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.TextScaled = true
+	label.Parent = billboard
+
+	task.wait(1)
+	billboard:Destroy()
+end
+
+--- Creates a telegraph sphere at the target position before an attack.
+-- Spawns a purple transparent, collisionless sphere as a visual warning for the attack.
+-- @param targetPosition The position where the sphere will appear.
+local function showTelegraphEffect(targetPosition)
+	local telegraph = Instance.new("Part")
+	telegraph.Size = Vector3.new(5, 5, 5)
+	telegraph.Shape = Enum.PartType.Ball
+	telegraph.BrickColor = BrickColor.new("Bright violet")
+	telegraph.Material = Enum.Material.Neon
+	telegraph.Transparency = 0.9
+	telegraph.CanCollide = false
+	telegraph.Anchored = true
+	telegraph.CFrame = CFrame.new(targetPosition)
+	telegraph.Parent = workspace
+
+	debris:AddItem(telegraph, 1)
+end
+
+--- Finds the closest player to the enemy.
+-- Iterates through all players in the game to calculate their distance from the enemy. Returns the nearest player and the corresponding distance by comparing each player's distance.
+-- @return closestPlayer The nearest player.
+-- @return distance The distance to the nearest player.
 local function getClosestPlayer()
-	local closestPlayer = nil
-	local closestDistance = longRange + 1
+	local closestPlayer, closestDistance = nil, ATTACK_CONSTANTS.Range.Long + 1
 
 	for _, player in pairs(players:GetPlayers()) do
-		if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-			local playerRoot = player.Character.HumanoidRootPart
-			local distance = (rootPart.Position - playerRoot.Position).Magnitude
-
+		local character = player.Character
+		if character and character:FindFirstChild("HumanoidRootPart") then
+			local distance = (rootPart.Position - character.HumanoidRootPart.Position).Magnitude
 			if distance < closestDistance then
 				closestDistance = distance
 				closestPlayer = player
@@ -45,13 +106,23 @@ local function getClosestPlayer()
 	return closestPlayer, closestDistance
 end
 
+--- Inflicts damage to a player.
+-- Reduces the player's humanoid health by the specified damage value if the humanoid exists.
+-- @param player The player to damage.
+-- @param damage The amount of damage to deal.
 local function dealDamage(player, damage)
-	local humanoid = player.Character:FindFirstChild("Humanoid")
+	local humanoid = player.Character and player.Character:FindFirstChild("Humanoid")
 	if humanoid then
 		humanoid:TakeDamage(damage)
 	end
 end
 
+--- Shoots a projectile towards a target.
+-- Creates a projectile part, applies velocity towards the target, and checks for collisions to deal damage upon contact. The projectile is automatically cleaned up after 5 seconds.
+-- @param targetPosition The position to aim at.
+-- @param color The projectile color.
+-- @param damage The damage the projectile inflicts.
+-- @param sizeMultiplier The size multiplier for the projectile.
 local function shootProjectile(targetPosition, color, damage, sizeMultiplier)
 	local projectile = Instance.new("Part")
 	projectile.Size = Vector3.new(2 * sizeMultiplier, 2 * sizeMultiplier, 2 * sizeMultiplier)
@@ -59,16 +130,14 @@ local function shootProjectile(targetPosition, color, damage, sizeMultiplier)
 	projectile.BrickColor = BrickColor.new(color)
 	projectile.Material = Enum.Material.Neon
 	projectile.CanCollide = false
-	projectile.Anchored = false
 	projectile.CFrame = rootPart.CFrame
 	projectile.Parent = workspace
 
-	local bodyVelocity = Instance.new("BodyVelocity")
-	bodyVelocity.Velocity = (targetPosition - rootPart.Position).Unit * projectileSpeed
-	bodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-	bodyVelocity.Parent = projectile
+	local velocity = Instance.new("BodyVelocity")
+	velocity.Velocity = (targetPosition - rootPart.Position).Unit * ATTACK_CONSTANTS.ProjectileSpeed
+	velocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+	velocity.Parent = projectile
 
-	-- Collision handling
 	projectile.Touched:Connect(function(hit)
 		local player = players:GetPlayerFromCharacter(hit.Parent)
 		if player and hit.Parent ~= enemy then
@@ -80,137 +149,78 @@ local function shootProjectile(targetPosition, color, damage, sizeMultiplier)
 	debris:AddItem(projectile, 5)
 end
 
+--- Makes the enemy sprint towards a player.
+-- Temporarily doubles the enemy's movement speed and directs it towards the target position. Resets the speed after the sprint duration elapses.
+-- @param targetPosition The position to sprint to.
 local function sprintTowardsPlayer(targetPosition)
-	humanoid.WalkSpeed = humanoid.WalkSpeed * 2
+	local originalSpeed = humanoid.WalkSpeed
+	humanoid.WalkSpeed = originalSpeed * 2
 	humanoid:MoveTo(targetPosition)
-	task.wait(sprintDuration)
-	humanoid.WalkSpeed = humanoid.WalkSpeed / 2
+	task.wait(ATTACK_CONSTANTS.SprintDuration)
+	humanoid.WalkSpeed = originalSpeed
 end
 
-local function resetAttackCounters()
-	redBeamCounter = 0
-	blueBeamCounter = 0
-	giantYellowBeamCounter = 0
-end
-
+--- Randomizes attack delays.
+-- Generates a random delay time between the minimum and maximum delay constants.
+-- @return A random delay time.
 local function randomizeAttackDelay()
-	return math.random(randomMinDelay, randomMaxDelay)
+	return math.random(ATTACK_CONSTANTS.Delay.Min, ATTACK_CONSTANTS.Delay.Max)
 end
 
-local function performRedBeamAttack(closestPlayer)
-	local playerRoot = closestPlayer.Character.HumanoidRootPart
+-- Attack Functions
+
+--- Performs a red beam attack.
+-- Tracks the number of red beams fired using a counter. When the counter reaches 5, a blue beam attack is triggered, and the counter resets. This ensures a predictable yet dynamic attack sequence.
+-- @param targetPosition The position to aim the attack.
+local function performRedBeamAttack(targetPosition)
 	task.wait(randomizeAttackDelay())
-
-	-- Normal Red Beam Attack
-	if redBeamCounter < 5 then
-		shootProjectile(playerRoot.Position, "Bright red", damageLongRange, 1)
-		redBeamCounter = redBeamCounter + 1
-	elseif redBeamCounter == 5 then
-		shootProjectile(playerRoot.Position, "Bright blue", damageLongRange * 3, 3)
-		blueBeamCounter = blueBeamCounter + 1
-		redBeamCounter = 0
+	showAttackWarning()
+	showTelegraphEffect(targetPosition)
+	if beamCounters.Red < 5 then
+		shootProjectile(targetPosition, "Bright red", ATTACK_CONSTANTS.Damage.LongRange, 1)
+		beamCounters.Red += 1
+	elseif beamCounters.Red == 5 then
+		shootProjectile(targetPosition, "Bright blue", ATTACK_CONSTANTS.Damage.LongRange * 3, 3)
+		beamCounters.Red = 0
+		beamCounters.Blue += 1
 	end
 end
 
-local function performGiantYellowBeamAttack(closestPlayer)
-	local playerRoot = closestPlayer.Character.HumanoidRootPart
+--- Performs a giant yellow beam attack.
+-- The yellow beam is triggered when the blue beam counter reaches 2. This attack resets the blue counter and increments the yellow counter, signifying a complete attack cycle.
+-- @param targetPosition The position to aim the attack.
+local function performGiantYellowBeamAttack(targetPosition)
 	task.wait(randomizeAttackDelay())
-
-	-- Giant Yellow Beam Attack
-	if blueBeamCounter == 2 then
-		shootProjectile(playerRoot.Position, "Bright yellow", damageLongRange * 5, 5)
-		giantYellowBeamCounter = giantYellowBeamCounter + 1
-		blueBeamCounter = 0
-		sprintTowardsPlayer(playerRoot.Position)
+	showAttackWarning()
+	showTelegraphEffect(targetPosition)
+	if beamCounters.Blue == 2 then
+		shootProjectile(targetPosition, "Bright yellow", ATTACK_CONSTANTS.Damage.LongRange * 5, 5)
+		beamCounters.Blue = 0
+		beamCounters.Yellow += 1
+		sprintTowardsPlayer(targetPosition)
 	end
 end
 
-local function manageAttackCycle(closestPlayer)
-	if redBeamCounter < 5 then
-		performRedBeamAttack(closestPlayer)
-	elseif redBeamCounter == 5 then
-		performRedBeamAttack(closestPlayer)
-	end
-
-	if blueBeamCounter == 2 then
-		performGiantYellowBeamAttack(closestPlayer)
-	end
-end
-
--- Telegraph Effect
-local function telegraphEffect()
-	local telegraphLight = Instance.new("Part")
-	telegraphLight.Size = Vector3.new(10, 10, 10)
-	telegraphLight.Shape = Enum.PartType.Ball
-	telegraphLight.Anchored = true
-	telegraphLight.CanCollide = false
-	telegraphLight.BrickColor = BrickColor.new("Bright yellow")
-	telegraphLight.Material = Enum.Material.Neon
-	telegraphLight.CFrame = rootPart.CFrame
-	telegraphLight.Transparency = 0.2 -- Increased opacity for the telegraph effect
-	telegraphLight.Parent = workspace
-
-	debris:AddItem(telegraphLight, 3) -- Duration for the telegraph effect
-end
-
--- Add the "!" above the enemy before attack
-local function showAttackWarning()
-	local warningSign = Instance.new("BillboardGui")
-	warningSign.Size = UDim2.new(0, 50, 0, 50)
-	warningSign.Adornee = rootPart
-	warningSign.Parent = enemy
-	warningSign.StudsOffset = Vector3.new(0, 5, 0)  -- Position above the enemy's head
-
-	local warningLabel = Instance.new("TextLabel")
-	warningLabel.Text = "!"
-	warningLabel.FontSize = Enum.FontSize.Size48
-	warningLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
-	warningLabel.BackgroundTransparency = 1
-	warningLabel.Size = UDim2.new(1, 0, 1, 0)
-	warningLabel.Parent = warningSign
-
-	-- Remove the warning sign after a short delay
-	task.wait(2)
-	warningSign:Destroy()
-end
-
--- Main Loop
+-- Main Logic Loop
 while task.wait(0.1) do
 	local closestPlayer, distance = getClosestPlayer()
 
-	if closestPlayer and closestPlayer.Character then
-		local playerRoot = closestPlayer.Character.HumanoidRootPart
+	if closestPlayer then
+		local targetPosition = closestPlayer.Character.HumanoidRootPart.Position
 
-		-- Telegraph effect
-		telegraphEffect()
-
-		-- Show "!" above the enemy head before attack
-		showAttackWarning()
-
-		-- Melee Attack
-		if distance <= shortRange then
-			humanoid:Move(Vector3.zero)
-			if not debounceMelee then
-				debounceMelee = true
-				dealDamage(closestPlayer, damageShortRange)
-				task.wait(meleeCooldown)
-				debounceMelee = false
-			end
-			-- Long Range Attack
-		elseif distance <= midRange then
-			if not debounceLongRange then
-				debounceLongRange = true
-				manageAttackCycle(closestPlayer)
-				task.wait(shootCooldown)
-				debounceLongRange = false
-			end
+		if distance <= ATTACK_CONSTANTS.Range.Short then
+			showAttackWarning()
+			showTelegraphEffect(targetPosition)
+			dealDamage(closestPlayer, ATTACK_CONSTANTS.Damage.ShortRange)
+		elseif distance <= ATTACK_CONSTANTS.Range.Mid then
+			performRedBeamAttack(targetPosition)
+			performGiantYellowBeamAttack(targetPosition)
 		end
 
-		-- Always chase the player within longRange
-		if distance <= longRange then
-			humanoid:MoveTo(playerRoot.Position)
+		if distance <= ATTACK_CONSTANTS.Range.Long then
+			sprintTowardsPlayer(targetPosition)
 		end
 	end
 end
 
---Hello there! Yes, this script is made by Me: Lillosibo2 (FlameDev). This adds to an "Enemy" Humanoid Model a variety of attacks and movement.
+--Hello there! Yes, this script is made by Me: Lillosibo2 (FlameDev). This adds to an "Enemy" Humanoid Model a variety of attacks and movement. 
