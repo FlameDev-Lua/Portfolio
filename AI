@@ -1,4 +1,5 @@
 -- Enemy AI with Advanced Logic and Structured Design
+-- Enemy AI with Advanced Logic and Structured Design
 
 -- References to enemy model and Roblox services
 local enemy = script.Parent
@@ -19,8 +20,8 @@ local ATTACK_CONSTANTS = {
 		Short = 10,
 	},
 	Cooldowns = {
-		Shoot = 2,
-		Melee = 0.5,
+		Shoot = 0.1,
+		Melee = 0.1,
 	},
 	SprintDuration = 2,
 	ProjectileSpeed = 50,
@@ -50,9 +51,8 @@ setmetatable(beamCounters, {
 local function showAttackWarning()
 	local billboard = Instance.new("BillboardGui")
 	billboard.Size = UDim2.new(0, 50, 0, 50)
-	billboard.Adornee = rootPart
-	billboard.Parent = enemy
 	billboard.StudsOffset = Vector3.new(0, 5, 0)
+	billboard.Adornee = rootPart -- Set after configuring the properties
 
 	local label = Instance.new("TextLabel")
 	label.Text = "!"
@@ -61,11 +61,15 @@ local function showAttackWarning()
 	label.BackgroundTransparency = 1
 	label.Size = UDim2.new(1, 0, 1, 0)
 	label.TextScaled = true
+
+	-- Set Parent properties last to optimize performance
 	label.Parent = billboard
+	billboard.Parent = enemy
 
 	task.wait(1)
 	billboard:Destroy()
 end
+
 
 --- Creates a telegraph sphere at the target position before an attack.
 -- Spawns a purple transparent, collisionless sphere as a visual warning for the attack.
@@ -117,8 +121,9 @@ local function dealDamage(player, damage)
 	end
 end
 
---- Shoots a projectile towards a target.
--- Creates a projectile part, applies velocity towards the target, and checks for collisions to deal damage upon contact. The projectile is automatically cleaned up after 5 seconds.
+--- Shoots a projectile towards a target with fire particles and sound.
+-- Creates a projectile part, applies velocity towards the target, and checks for collisions to deal damage upon contact. 
+-- Also adds a fire particle effect and plays a shooting sound.
 -- @param targetPosition The position to aim at.
 -- @param color The projectile color.
 -- @param damage The damage the projectile inflicts.
@@ -133,11 +138,28 @@ local function shootProjectile(targetPosition, color, damage, sizeMultiplier)
 	projectile.CFrame = rootPart.CFrame
 	projectile.Parent = workspace
 
+	-- Add Fire Particles to the projectile
+	local particleEmitter = Instance.new("ParticleEmitter")
+	particleEmitter.Texture = "rbxassetid://248764835" 
+	particleEmitter.Size = NumberSequence.new(0.5, 1.5)
+	particleEmitter.Lifetime = NumberRange.new(0.5, 1)
+	particleEmitter.Rate = 100
+	particleEmitter.Speed = NumberRange.new(10, 20)
+	particleEmitter.Parent = projectile
+
+	-- Add shooting sound
+	local shootSound = Instance.new("Sound")
+	shootSound.SoundId = "rbxassetid://1231332924"  -- sound by @the1oler
+	shootSound.Parent = projectile
+	shootSound:Play()
+
+	-- Apply velocity to the projectile
 	local velocity = Instance.new("BodyVelocity")
 	velocity.Velocity = (targetPosition - rootPart.Position).Unit * ATTACK_CONSTANTS.ProjectileSpeed
 	velocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
 	velocity.Parent = projectile
 
+	-- Handle projectile collision
 	projectile.Touched:Connect(function(hit)
 		local player = players:GetPlayerFromCharacter(hit.Parent)
 		if player and hit.Parent ~= enemy then
@@ -186,6 +208,23 @@ local function performRedBeamAttack(targetPosition)
 	end
 end
 
+--- Performs a green beam attack.
+-- The green beam is small but extremely fast and happens after every 2 yellow beams.
+-- This attack resets the yellow counter, completing a full attack cycle.
+-- @param targetPosition The position to aim the attack.
+local function performGreenBeamAttack(targetPosition)
+	task.wait(randomizeAttackDelay())
+	showAttackWarning()
+	showTelegraphEffect(targetPosition)
+
+	-- Shoot the projectile (aiming correctly at the target position)
+	shootProjectile(targetPosition, "Bright green", ATTACK_CONSTANTS.Damage.LongRange * 2, 0.5)
+
+	-- Reset the yellow counter after the green beam
+	beamCounters.Yellow = 0
+end
+
+
 --- Performs a giant yellow beam attack.
 -- The yellow beam is triggered when the blue beam counter reaches 2. This attack resets the blue counter and increments the yellow counter, signifying a complete attack cycle.
 -- @param targetPosition The position to aim the attack.
@@ -198,6 +237,11 @@ local function performGiantYellowBeamAttack(targetPosition)
 		beamCounters.Blue = 0
 		beamCounters.Yellow += 1
 		sprintTowardsPlayer(targetPosition)
+
+		-- Trigger green beam after every 2 yellow beams
+		if beamCounters.Yellow == 2 then
+			performGreenBeamAttack(targetPosition)
+		end
 	end
 end
 
@@ -205,9 +249,11 @@ end
 while task.wait(0.1) do
 	local closestPlayer, distance = getClosestPlayer()
 
+	-- If a player is found, proceed with attack logic
 	if closestPlayer then
 		local targetPosition = closestPlayer.Character.HumanoidRootPart.Position
 
+		-- Attack logic
 		if distance <= ATTACK_CONSTANTS.Range.Short then
 			showAttackWarning()
 			showTelegraphEffect(targetPosition)
