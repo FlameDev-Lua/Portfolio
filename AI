@@ -1,5 +1,4 @@
 -- Enemy AI with Advanced Logic and Structured Design
--- Enemy AI with Advanced Logic and Structured Design
 
 -- References to enemy model and Roblox services
 local enemy = script.Parent
